@@ -19,7 +19,7 @@ void find(char* start_path, char* filename) {
 	}
 
 	if(fstat(fd, &st) < 0){
-		fprintf(2, "ls: cannot stat %s\n", start_path);
+		fprintf(2, "find: cannot stat %s\n", start_path);
 		close(fd);
 		return;
 	}
