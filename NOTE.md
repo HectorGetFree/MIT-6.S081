@@ -242,7 +242,7 @@ xv6维护地址空间和页表的代码基本都在 `vm.c`中
 
 `main`调用了`kvminit(vm.c:54)`来用`kvmmake(vm.c:20)`创建内核页表 -- 直接映射到物理地址
 
-`proc_maostacks(proc.c:33)`为每个进程分配一个内核栈
+`proc_mapstacks(proc.c:33)`为每个进程分配一个内核栈
 
 它调用`kvmmap(vm.c:127)` 来对每个栈上的虚拟地址进行映射，同时为guard留下空间
 
@@ -269,6 +269,26 @@ xv6维护地址空间和页表的代码基本都在 `vm.c`中
 - 每个进程都一个页表，可用于不同进程之间的切换
 - 一个进程的`user memeory`从虚拟地址0开始可以增长到`MAXVA(riscv.h:360)` -- 256 GB内存
 - 当进程要求更多用户内存时，调用`kalloc`来分配物理内存 -- 然后添加PTE到进程页表
+
+
+
+
+
+
+
+Getpid()
+
+- 当每个进程被创建时，映射一个仅读的页在`USYSCALL`(一个被定义在`memlayout.h`的虚拟地址)
+- 在这个页的开头，存储一个`struct usyscall`（也定义在`memlayout.h`）
+
+- 然后初始化他来储存当前进程的PID
+- 在本lab中，`ugetpid()`被提供给用户空间，然后回自动使用USYSCALL映射
+
+
+
+- 选择permission bits来使得用户空间仅读取这一页
+- 在一个新页的生命周期里有一些事情需要完成
+  - 查看`proc.c`中trapframe的处理来得到灵感
 - 
 
 ## Lecture 5 RISC-V calling convertion
