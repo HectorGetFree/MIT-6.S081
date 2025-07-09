@@ -21,13 +21,21 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+} kmem, supermem; // 创建super空闲链表实例
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+  freerange(end, (void*)SUPERPGBASE); // end - superbase 用于普通页分配
+}
+
+// 创建superinit()
+void
+superinit() 
+{
+  initlock(&supermem.lock, "supermem");
+  freerange((void *)SUPERPGBASE, (void *)PHYSTOP); // superbase-结束 用于超级页分配
 }
 
 void
@@ -48,7 +56,7 @@ kfree(void *pa)
 {
   struct run *r;
 
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= SUPERPGBASE) // 更改检查范围
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
@@ -60,6 +68,25 @@ kfree(void *pa)
   r->next = kmem.freelist;
   kmem.freelist = r;
   release(&kmem.lock);
+}
+
+void 
+superfree(void *pa) 
+{
+  struct run *r;
+
+  if(((uint64)pa % SUPERPGSIZE) != 0 || (char*)pa < SUPERPGBASE || (uint64)pa >= PHYSTOP)
+    panic("superfree");
+
+  // Fill with junk to catch dangling refs.
+  memset(pa, 1, SUPERPGSIZE);
+
+  r = (struct run*)pa;
+
+  acquire(&supermem.lock);
+  r->next = supermem.freelist;
+  supermem.freelist = r;
+  release(&supermem.lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -78,5 +105,21 @@ kalloc(void)
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+  return (void*)r;
+}
+
+void * 
+superalloc(void)
+{
+  struct run *r;
+
+  acquire(&supermem.lock);
+  r = supermem.freelist; 
+  if(r)
+    supermem.freelist = r->next;
+  release(&supermem.lock);
+
+  if(r)
+    memset((char*)r, 5, SUPERPGSIZE); // fill with junk
   return (void*)r;
 }

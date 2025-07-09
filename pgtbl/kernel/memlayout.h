@@ -43,6 +43,9 @@
 #define KERNBASE 0x80000000L
 #define PHYSTOP (KERNBASE + 128*1024*1024)
 
+// 我们添加一个 巨页基址 其后面到PHYSTOP的空间都用来分配巨页
+#define SUPERPGBASE (KERNBASE + 512*PGSIZE*12)
+
 // map the trampoline page to the highest address,
 // in both user and kernel space.
 #define TRAMPOLINE (MAXVA - PGSIZE)

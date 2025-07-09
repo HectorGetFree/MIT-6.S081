@@ -340,5 +340,25 @@ Use superpages
 
 
 
+思路来自[博客](https://blog.csdn.net/qq_60409213/article/details/147146553?ops_request_misc=%257B%2522request%255Fid%2522%253A%25226dd9a9b840f35e33f8cca03825d5b5f6%2522%252C%2522scm%2522%253A%252220140713.130102334..%2522%257D&request_id=6dd9a9b840f35e33f8cca03825d5b5f6&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~sobaiduend~default-2-147146553-null-null.142^v102^pc_search_result_base2&utm_term=xv6%20lab3&spm=1018.2226.3001.4187) 看完博客后自己尝试做了一遍
+
+- 先去看`superpg_test`中的`superpg_test()，`其核心代码是  `supercheck(s)`
+  - 然后在`supercheck()`中观察到超级页大小是 **512 * PGSIZE*** 正好是2MB
+
+
+
+- 接着我们去看`sbrk`关键调用路径是：growproc(n) - > uvmalloc -> kalloc()\mappages()
+
+  - 其中`kalloc()`的关键是对 空闲内存链表 `freelist`操作
+
+    得到基本思路：**由于巨页的大小跟普通页不一样，所以我们需要额外维护一个巨页空闲链表**
+
+  - 然后管理巨页空闲链表的方式应该与管理普通空闲链表的方式类似 -> **观察普通链表行为**
+
+
+
+- 观察到`kinit()`行为：他进行第一次物理页的分配，其范围是：end（kernel结束地址）-  PHYSTOP最高地址
+  - 类似，我们要对`kalloc.c`文件中跟空闲链表有关的函数都进行模仿**得到超级链表版本**
+
 ## Lecture 5 RISC-V calling convertion
 
