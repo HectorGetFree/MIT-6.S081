@@ -120,7 +120,7 @@ superpg_test()
   printf("superpg_test starting\n");
   testname = "superpg_test";
   
-  char *end = sbrk(N);
+  char *end = sbrk(N);  // 4个superpage
   if (end == 0 || end == (char*)0xffffffffffffffff)
     err("sbrk failed");
   

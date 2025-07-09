@@ -71,7 +71,7 @@ kalloc(void)
   struct run *r;
 
   acquire(&kmem.lock);
-  r = kmem.freelist;
+  r = kmem.freelist; 
   if(r)
     kmem.freelist = r->next;
   release(&kmem.lock);

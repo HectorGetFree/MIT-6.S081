@@ -312,5 +312,33 @@ Print a page table
 
 
 
+Use superpages
+
+- RISC-V分页硬件支持2MB还有典型的4096-byte大小的分页，大页也就是superpages
+- OS创建superpages：在level-1 PTE中设置PTE_V和PTE_R；设置物理页号指向2MB大小的物理内存
+
+
+
+- 任务是修改xv6内核来支持superpages
+- 具体表述：
+  - 如果调用`sbrk(>=2MB)` 并且新创建的地址范围包括一个或者多个2MB对齐的且大小至少为2MB的区域
+  - 内核应该使用superpage
+
+- hints
+
+  - 读`pgtbltest.c`中的`superpg_test`
+
+  - `sys_sbrk`,按照代码路径找到为 sbrk 分配内存的函数 growproc(n) - > uvmalloc -> kalloc()\mappages()
+
+  - 内核应该可以分配和释放2MB大小的内存区域
+
+    修改`kalloc.c`来在物理内存中设置一些2MB大小的内存
+
+    创建`superalloc()`和`superfree()`方法
+
+  - 当具有超级页面的进程fork时必须分配超级页面，并在退出时释放超级页面；您需要修改 `uvmcopy()` 和 `uvmunmap()`
+
+
+
 ## Lecture 5 RISC-V calling convertion
 
