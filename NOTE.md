@@ -289,7 +289,28 @@ Getpid()
 - 选择permission bits来使得用户空间仅读取这一页
 - 在一个新页的生命周期里有一些事情需要完成
   - 查看`proc.c`中trapframe的处理来得到灵感
-- 
+
+
+
+Print a page table
+
+`kpgtbl()`系统调用调用`vmprint()`
+
+ 需要一个`pagetable_t`的参数，任务是打印pgtbl
+
+- 第一行展示的是`vmprint()`的参数
+- 然后每一行是一个PTE
+- 包括下一级别的PTE
+- 每个PTE展示的是虚拟地址 pte位和物理地址
+- 不要打印无效的PTE
+
+
+
+- 使用在`riscv.h`最后定义的宏
+- 留意`freewalk`
+- 用%p打印地址
+
+
 
 ## Lecture 5 RISC-V calling convertion
 
