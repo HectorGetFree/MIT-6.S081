@@ -164,16 +164,112 @@ make GRADEFLAGS=sleep grade
     - ###### 5 = 2 + 3
 
 - 然后是fork+exec调用attack
-
   - attack和secret一样都只有4页用户内存
   - 因此在执行attack的时候系统分配的页面数应该与secret时相同也就是1(trapframe)+3(proc_pagetable)+6(uvmcopy)+3(proc_pagetable)+4(load)+2(stack & guard) - 9(oldpagetable) = 10页
-
 - 链式栈管理空闲内存 
-
   - secret写入的是分配的32页中的第十页
   - 前面有22（32 - 10） + 5（pagetable）
   - 然后已经被占用10页了
   - 所以attack只需要分配17页即可
   - 系统把空闲页前4个字节作为链式栈的指针了，所以覆盖掉了秘密的值 -- 页内offset要>=32
 
-  
+## Lecture 4 Paging
+
+xv6运行的是Sv39 RISC-V：也就是64位地址仅低位39位会被用到
+
+- 一张page table 包含 2^27^个条目
+
+- 每个PTE包含一个44位的PPN和一些标识位
+
+- 翻译规则：
+
+  虚拟地址的高27位（在采用的39中）最为索引得到PPN
+
+  然后得到56位的物理地址
+
+- 页表使操作系统能够以 4096 (212) 字节为单位，以对齐的块为粒度控制虚拟地址到物理地址的转换。这样的块称为页。
+- Sv39 RISC-V使用三级页表
+  - 第一级页表大小是4096-byte，包含512个PTE
+  - 第二级页表也包含512个PTE
+  - 虚拟地址的高27位中的高9位用作第一级别索引
+  - 中间9位用于第二级索引，最后9位用于最后一级的索引
+  - flags&page hardware-related structure 定义在 riscv.h中
+
+
+
+- 内核在 `stap`寄存器中记录下第一级页表的物理地址
+  - 每个CPU都有一个stap
+
+
+
+Xv6为每个进程维护一个页表，描述了每个进程的用户地址空间还有一个页表用来描述内核地址空间
+
+- `memlayout.h`描述了xv6的内核地址布局
+
+
+
+qemu模拟的计算机，其物理地址开始在 `0x80000000`到 `0x86400000`结束 -- 内核地址直接映射到物理地址
+
+- 但是有些捏合虚拟地址不是直接映射的
+  - trampoline
+  - 内核栈
+
+
+
+xv6维护地址空间和页表的代码基本都在 `vm.c`中
+
+- 关键的结构是 `pagetable_t`
+
+  它是一个指向架构第一级页表的指针
+
+  它要么是内核页表，要么是进程也表
+
+- 关键的方法是 `walk`
+
+  - 它为一个虚拟地址和 `mappages` 找到PTE 以及 
+
+  - mappages 将PTE安装到新的映射
+
+- 以`kvm`开头的方法维护的内核页表
+
+- 以`uvm`开头的方法维护的是用户页表
+
+- 其他方法二者都有维护
+
+- `copyout`和`copyin`
+
+
+
+`main`调用了`kvminit(vm.c:54)`来用`kvmmake(vm.c:20)`创建内核页表 -- 直接映射到物理地址
+
+`proc_maostacks(proc.c:33)`为每个进程分配一个内核栈
+
+它调用`kvmmap(vm.c:127)` 来对每个栈上的虚拟地址进行映射，同时为guard留下空间
+
+`kvmmap`调用`mappages(vm.c:138)`
+
+`main`调用`kvminithart(vm.c:62)`来将内核第一级页表地址写入寄存器`satp`
+
+
+
+物理地址分配
+
+- xv6每次分配或者释放整个的4096-byte的页表
+- 它利用链表跟踪空闲页
+- 分配者在`kalloc(kalloc.c:1)`中
+- 每个空闲链表的元素都是一个`struct run(kalloc.c:17)`
+- 分配器将每个空闲链表的run结构储存在空闲页本身（反正空闲页本身也没有被使用）
+- `main`调用`kinit`来初始化分配器`kalloc.c:27`
+- `kinit`调用`freerange`，通过为每个页表调用`kfree`来添加内存到空闲链表，`freerange`利用`PGROUNDUP`来确保4096数据对齐
+
+
+
+进程地址空间：
+
+- 每个进程都一个页表，可用于不同进程之间的切换
+- 一个进程的`user memeory`从虚拟地址0开始可以增长到`MAXVA(riscv.h:360)` -- 256 GB内存
+- 当进程要求更多用户内存时，调用`kalloc`来分配物理内存 -- 然后添加PTE到进程页表
+- 
+
+## Lecture 5 RISC-V calling convertion
+
