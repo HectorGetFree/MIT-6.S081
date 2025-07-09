@@ -360,5 +360,13 @@ Use superpages
 - 观察到`kinit()`行为：他进行第一次物理页的分配，其范围是：end（kernel结束地址）-  PHYSTOP最高地址
   - 类似，我们要对`kalloc.c`文件中跟空闲链表有关的函数都进行模仿**得到超级链表版本**
 
+
+
+- 回到uvmalloc
+  - 我们也要有相应的超级页版本
+  - 可以看到既然我们改了uvmalloc，那么也要改释放uvmdealloc -- 需要 **提供超级页版本的walk**
+  - 然后还有映射 `mappages() `和解映射 `uvmunmap()`
+  - 接着就是`uvmcopy()`
+
 ## Lecture 5 RISC-V calling convertion
 

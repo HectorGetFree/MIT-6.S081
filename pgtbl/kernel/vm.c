@@ -117,6 +117,26 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   return &pagetable[PX(0, va)];
 }
 
+pte_t *
+superwalk(pagetable_t pagetable, uint64 va, int alloc) {
+  if(va >= MAXVA)
+	panic("superwalk");
+  // 获取第2级别的页表项
+  pte_t *pte = &pagetable[PX(2, va)];
+  // 如果有效,进入第一级页表
+  if(*pte & PTE_V) {
+	  pagetable = (pagetable_t)PTE2PA(*pte); // 获取下一级别的pg
+	  return &pagetable[PX(1, va)]; // 返回第一级别的pte指针
+  } else {
+	  if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+		return 0;
+	  memset(pagetable, 0, PGSIZE);
+	  *pte = PA2PTE(pagetable) | PTE_V;
+	  return &pagetable[PX(0, va)];
+  }
+  
+}
+
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
@@ -159,30 +179,43 @@ kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
 int
 mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 {
-  uint64 a, last;
+  uint64 a, last, pgsize;
   pte_t *pte;
 
-  if((va % PGSIZE) != 0)
+  // 根据页大小选择对齐标准
+  if (size >= SUPERPGSIZE) {
+	pgsize = SUPERPGSIZE;
+  } else {
+	pgsize = PGSIZE;
+  }
+  if((va % pgsize) != 0)
 	panic("mappages: va not aligned");
 
-  if((size % PGSIZE) != 0)
+  if((size % pgsize) != 0)
 	panic("mappages: size not aligned");
 
   if(size == 0)
 	panic("mappages: size");
   
   a = va;
-  last = va + size - PGSIZE;
+  last = va + size - pgsize;
   for(;;){
-	if((pte = walk(pagetable, a, 1)) == 0)
+	// 同样进行选择
+	if (size >= SUPERPGSIZE) {
+	  if((pte = superwalk(pagetable, a, 1)) == 0)
 	  return -1;
+	} else {
+	  if((pte = walk(pagetable, a, 1)) == 0)
+	  return -1;
+	}
+	
 	if(*pte & PTE_V)
 	  panic("mappages: remap");
 	*pte = PA2PTE(pa) | perm | PTE_V;
 	if(a == last)
 	  break;
-	a += PGSIZE;
-	pa += PGSIZE;
+	a += pgsize;
+	pa += pgsize;
   }
   return 0;
 }
@@ -210,9 +243,19 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 	}
 	if(PTE_FLAGS(*pte) == PTE_V)
 	  panic("uvmunmap: not a leaf");
+	// 获得物理地址判断页地址是否在超级页范围
+	uint64 pa = PTE2PA(*pte);
+	if (pa >= SUPERPGBASE) {
+		// 调整循环步长
+		a += SUPERPGSIZE;
+		a -= sz;
+	}
 	if(do_free){
-	  uint64 pa = PTE2PA(*pte);
-	  kfree((void*)pa);
+	  if (pa >= SUPERPGBASE) {
+		superfree((void *)pa);
+	  } else {
+		kfree((void*)pa);
+	  }
 	}
 	*pte = 0;
   }
@@ -260,8 +303,10 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
   if(newsz < oldsz)
 	return oldsz;
 
+  
   oldsz = PGROUNDUP(oldsz);
-  for(a = oldsz; a < newsz; a += sz){
+  // 利用超级页对其所浪费的空间
+  for(a = oldsz; a < SUPERPGROUNDUP(oldsz) && a < newsz; a += sz){
 	sz = PGSIZE;
 	mem = kalloc();
 	if(mem == 0){
@@ -277,6 +322,41 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 	  return 0;
 	}
   }
+    // 第二步：尽可能使用超级页批量分配，提升性能并减少页表开销
+  // 之所以加上 a + SUPERPGSIZE < newsz 的条件，是为了尽可能少地浪费内存
+  for(; a + SUPERPGSIZE < newsz; a += sz){
+    sz = SUPERPGSIZE; 
+    mem = superalloc(); 
+    if(mem == 0){
+      break;
+    }
+  #ifndef LAB_SYSCALL
+    memset(mem, 0, sz);
+  #endif
+    if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
+      superfree(mem);
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+  }
+  // 第三步：对剩下不足一个超级页的部分用普通页补齐
+  for(; a < newsz; a += sz){
+    sz = PGSIZE;
+    mem = kalloc();
+    if(mem == 0){
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+#ifndef LAB_SYSCALL
+    memset(mem, 0, sz);
+#endif
+    if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
+      kfree(mem);
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+  }
+  // 返回新分配完成后的地址空间大小
   return newsz;
 }
 
@@ -290,10 +370,18 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   if(newsz >= oldsz)
 	return oldsz;
 
-  if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)){
-	int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
-	uvmunmap(pagetable, PGROUNDUP(newsz), npages, 1);
+  if (oldsz >= SUPERPGSIZE) {
+	if(SUPERPGROUNDUP(newsz) < SUPERPGROUNDUP(oldsz)){
+	  int npages = (SUPERPGROUNDUP(oldsz) - SUPERPGROUNDUP(newsz)) / SUPERPGSIZE;
+	  uvmunmap(pagetable, SUPERPGROUNDUP(newsz), npages, 1);
+    }
+  } else {
+	if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)){
+	  int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
+	  uvmunmap(pagetable, PGROUNDUP(newsz), npages, 1);
+  	}
   }
+  
 
   return newsz;
 }
@@ -342,21 +430,31 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uint flags;
   char *mem;
   int szinc;
-
+  // 遍历old页表中所有虚拟地址
   for(i = 0; i < sz; i += szinc){
 	szinc = PGSIZE;
-	szinc = PGSIZE;
+	// 由于此时已经被正确映射，所以普通的walk也能找到
 	if((pte = walk(old, i, 0)) == 0)
 	  panic("uvmcopy: pte should exist");
 	if((*pte & PTE_V) == 0)
 	  panic("uvmcopy: page not present");
 	pa = PTE2PA(*pte);
 	flags = PTE_FLAGS(*pte);
-	if((mem = kalloc()) == 0)
-	  goto err;
-	memmove(mem, (char*)pa, PGSIZE);
-	if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-	  kfree(mem);
+	if (pa >= SUPERPGBASE) {
+	  szinc = SUPERPGSIZE;
+	  if((mem = superalloc()) == 0)
+	    goto err;
+	} else {
+	  if((mem = kalloc()) == 0)
+	    goto err;
+	}
+	memmove(mem, (char*)pa, szinc);
+	if(mappages(new, i, szinc, (uint64)mem, flags) != 0){
+	  if (szinc >= SUPERPGSIZE) {
+		superfree(mem);
+      } else {
+		kfree(mem);
+	  }
 	  goto err;
 	}
   }

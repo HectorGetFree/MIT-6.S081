@@ -10,6 +10,7 @@
 #include "defs.h"
 
 void freerange(void *pa_start, void *pa_end);
+void superfree(void *pa); // Add prototype for superfree
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
@@ -28,14 +29,17 @@ kinit()
 {
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)SUPERPGBASE); // end - superbase 用于普通页分配
+  superinit();
 }
 
 // 创建superinit()
-void
-superinit() 
-{
+void 
+superinit(){
   initlock(&supermem.lock, "supermem");
-  freerange((void *)SUPERPGBASE, (void *)PHYSTOP); // superbase-结束 用于超级页分配
+  char *p;
+  p = (char*)SUPERPGROUNDUP((uint64)SUPERPGBASE);
+  for(; p + SUPERPGSIZE <= (char*)PHYSTOP; p += SUPERPGSIZE)
+    superfree(p);
 }
 
 void
