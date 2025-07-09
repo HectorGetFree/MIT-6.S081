@@ -32,11 +32,9 @@ int unbind(uint32);
 int send(uint32, uint32, uint32, char *, uint32);
 int recv(uint32, uint32*, uint32*, char *, uint32);
 #endif
-#ifdef LAB_PGTBL
 int ugetpid(void);
 uint64 pgpte(void*);
 void kpgtbl(void);
-#endif
 
 // ulib.c
 int stat(const char*, struct stat*);
