@@ -11,7 +11,7 @@
 
 void freerange(void *pa_start, void *pa_end);
 void superfree(void *pa); // Add prototype for superfree
-
+void superinit(void);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
@@ -79,7 +79,7 @@ superfree(void *pa)
 {
   struct run *r;
 
-  if(((uint64)pa % SUPERPGSIZE) != 0 || (char*)pa < SUPERPGBASE || (uint64)pa >= PHYSTOP)
+  if(((uint64)pa % SUPERPGSIZE) != 0 || (char*)pa < (char *)SUPERPGBASE || (uint64)pa >= PHYSTOP)
     panic("superfree");
 
   // Fill with junk to catch dangling refs.

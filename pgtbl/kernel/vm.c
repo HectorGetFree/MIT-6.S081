@@ -183,7 +183,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   pte_t *pte;
 
   // 根据页大小选择对齐标准
-  if (size >= SUPERPGSIZE) {
+  if (pa >= SUPERPGBASE) {
 	pgsize = SUPERPGSIZE;
   } else {
 	pgsize = PGSIZE;
@@ -201,13 +201,10 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   last = va + size - pgsize;
   for(;;){
 	// 同样进行选择
-	if (size >= SUPERPGSIZE) {
-	  if((pte = superwalk(pagetable, a, 1)) == 0)
-	  return -1;
-	} else {
-	  if((pte = walk(pagetable, a, 1)) == 0)
-	  return -1;
-	}
+	if(pgsize == PGSIZE && (pte = walk(pagetable, a, 1)) == 0)
+      return -1;
+    if(pgsize == SUPERPGSIZE && (pte = superwalk(pagetable, a, 1)) == 0)
+      return -1;
 	
 	if(*pte & PTE_V)
 	  panic("mappages: remap");
