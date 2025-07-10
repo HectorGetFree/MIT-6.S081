@@ -604,8 +604,7 @@ void vmprint_helper(pagetable_t pagetable, int level, uint64 va) {
 		printf("%p: pte %p pa %p\n", (pagetable_t)va, (pagetable_t)pte, (pagetable_t)PTE2PA(pte));
 		if((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
       		vmprint_helper((pagetable_t)PTE2PA(pte), level - 1, va);
-    	}
-		
+    	}		
 	}
 }
 void

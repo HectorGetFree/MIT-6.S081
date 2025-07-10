@@ -366,5 +366,72 @@ Use superpages
   - 然后还有映射 `mappages() `和解映射 `uvmunmap()`
   - 接着就是`uvmcopy()`
 
-## Lecture 5 RISC-V calling convertion
 
+
+## Chapter 4 Traps and System calls
+
+三种情况：都是trap
+
+- 系统调用 `ecall`指令
+- `exception` 异常
+- `interrupt` 中断 ：设备需要注意
+
+
+
+寄存器
+
+- `stvec`:内核将handler的地址写入此寄存器
+- `spec`:保存程序计数器pc的值（因为pc之后会被stvec中的值覆盖），指令`sret`将spec的值复制到pc中完成恢复
+- `scause`:保存一个数字来指明trap的原因
+- `sscratch`:内核在这里放置一个值，这个值在陷阱处理程序一开始就很有用。
+- `sstatus`:sstatus中的SIE位控制设备中断是否启用，如果内核清理了SIE，RISC-V 将推迟设备中断，直到内核设置 SIE。SPP位表明trap来自user模式还是supervisor模式，并控制`sret`返回到哪个模式
+
+整个流程是：
+
+1. 如果trap是设备中断，SIE被清理，以下的步骤都不会执行
+2. 通过清理SIE来禁用中断
+3. 将pc复制到sepc
+4. 在SPP中保存当前机器状态
+5. 设置scause
+6. 将模式设置为supervisor
+
+7. 将stvec复制给pc
+8. 开始在新pc处执行
+
+
+
+User mode trap handling
+
+path :
+
+`uservec`->`usertrap`->`usertrapret`->`userret`
+
+由于在trap时不进行pg的切换，且要求stvec在内核pg和用户pg中都有相应的映射来保证handler的正确运行 -- 使用 trampoline页 ，它包含了`uservec`也就是stvec所指向的handler代码，该页以PTE_U被映射到用户页表，可以在supervisor模式下运行。因为跳板页被映射到内核地址空间的相同地址，handler可以在切换到内核页表后继续运行
+
+`uservec`:保存引发中断的用户代码的32个寄存器的值，放入内存以便恢复，但是存入内存需要一些寄存器来保存地址，但是眼下没有可用的通用寄存器，所以使用`sscratch`来搭把手
+
+​	在`uservec`开始的`csrrw`指令交换a0和sscratch的值，现在a0的值被保存，可以被程序使用，a0此时保存着内核先前放入sscratch的值
+
+​	在交换后a0保存着当前进程的trapframe指针，这样就可以保存所有寄存器了，（a0原来的值则在sscratch中）
+
+​	trapframe保存着很多有用的值，供uservec使用，然后更改`satp`到内核页表，然后调用`usertrap`
+
+
+
+Usertrap:
+
+​	任务是决定trap的类型，处理它，接着返回
+
+​	它首先更改stvec的值，使得在内核中的trap能够被`kernelvec`处理而不是uservec，它保存sepc的值，因为usertrap可能会调用yield来切换到另一个进程的内核线程，这可能会更改sepc
+
+​	如果trap是一个syscall，则`usertrap`调用syscall来处理；如果是一个设备中断，调用`devintr`;如果是异常，内核会杀死错误进程。
+
+`usertrapret`
+
+​	返回到user space的第一步就是调用usertrapret，它设置控制寄存器来准备向user space的trap，这包括将stvec指向uservec，准备trapframe并且设置sepc到之前保存的user pc，最后，userttrapret调用`userret`，这将切换页表
+
+
+
+
+
+`kernelvec` pushes all 32 registers onto the stack,
