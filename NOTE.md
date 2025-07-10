@@ -292,8 +292,6 @@ Getpid()
 
 
 
-Print a page table
-
 `kpgtbl()`系统调用调用`vmprint()`
 
  需要一个`pagetable_t`的参数，任务是打印pgtbl
