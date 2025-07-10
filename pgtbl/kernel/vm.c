@@ -583,28 +583,36 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 
 
 #ifdef LAB_PGTBL
-void vmprint_helper(pagetable_t pagetable, int level) {
-	for (int i = 0; i < 512; i++) {
+void vmprint_helper(pagetable_t pagetable, int level, uint64 va) {
+	uint64 sz;
+	// 根据层级调整步长
+	if (level == 0) {
+		sz = PGSIZE;
+	} else if (level == 1) {
+		sz = PGSIZE * 512;
+	} else {
+		sz = PGSIZE * 512 * 512;
+	}
+	for (int i = 0; i < 512; i++, va += sz) {
 		pte_t pte = pagetable[i];
-		if ((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0) {
-			for (int i = 0; i < level; i++) {
-				printf("..");
-			}
-			printf("%ld: pte %ld pa %ld\n", pte, PTE_FLAGS(pte), PTE2PA(pte));
-			if (level == 3) {
-				continue;
-			} else {
-				uint64 child = PTE2PA(pte);
-				vmprint_helper((pagetable_t)child, level + 1);
-			}
+		if((pte & PTE_V) == 0)
+      		continue;
+		
+		for (int i = level; i < 3; i++) {
+			printf("..");
 		}
+		printf("%p: pte %p pa %p\n", (pagetable_t)va, (pagetable_t)pte, (pagetable_t)PTE2PA(pte));
+		if((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+      		vmprint_helper((pagetable_t)PTE2PA(pte), level - 1, va);
+    	}
+		
 	}
 }
 void
 vmprint(pagetable_t pagetable) {
 	// 打印第一行
 	printf("page table %p\n", pagetable);
-	vmprint_helper(pagetable, 1);
+	vmprint_helper(pagetable, 2, 0);
 }
 
 
