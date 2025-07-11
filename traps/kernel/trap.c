@@ -77,11 +77,14 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2){
+  if(which_dev == 2 && p->handler_in_or_not == 0){
     p->passed_interval++;
-    if ((p->passed_interval % p->interval == 0) && p->handler_in_or_not == 0) {
+    // 避免interval为0
+    if (p->interval != 0 && p->passed_interval == p->interval) {
       printf("alarm!\n");
 
+      // 计数器清零
+      p->passed_interval = 0;
       // 在进入handler之前先保存trapframe寄存器
       // 方便后面返回时恢复
       p->epc = p->trapframe->epc;

@@ -410,7 +410,7 @@ path :
 
 `uservec`:保存引发中断的用户代码的32个寄存器的值，放入内存以便恢复，但是存入内存需要一些寄存器来保存地址，但是眼下没有可用的通用寄存器，所以使用`sscratch`来搭把手
 
-​	在`uservec`开始的`csrrw`指令交换a0和sscratch的值，现在a0的值被保存，可以被程序使用，a0此时保存着内核先前放入sscratch的值
+​	在`uservec`开始的`csrrw`指令交换a0和sscratch的值，现在a0的值被保存，a0可以被程序使用，交换后a0保存着内核先前放入sscratch的值
 
 ​	在交换后a0保存着当前进程的trapframe指针，这样就可以保存所有寄存器了，（a0原来的值则在sscratch中）
 
@@ -435,3 +435,19 @@ Usertrap:
 
 
 `kernelvec` pushes all 32 registers onto the stack,
+
+
+
+return address 在fp offset -8处
+
+保存的fp在fp-16处
+
+
+
+基本思路是：循环fp直到栈的最高位，打印相应的返回地址
+
+
+
+添加 `sigalarm(interval, handler)`系统调用
+
+每隔interval就调用一次handler
