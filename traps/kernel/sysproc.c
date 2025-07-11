@@ -98,9 +98,9 @@ sys_sigalarm(void)
 {
   int interval;
   argint(0, &interval);
-  uint64 *handler;
-  argaddr(1, handler);
-  struct proc *p = allocproc();
+  uint64 handler;
+  argaddr(1, &handler);
+  struct proc *p = myproc();
   p->interval = interval;
   p->handler = handler;
   p->passed_interval = 0;
