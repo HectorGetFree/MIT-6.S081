@@ -451,3 +451,21 @@ return address 在fp offset -8处
 添加 `sigalarm(interval, handler)`系统调用
 
 每隔interval就调用一次handler
+
+
+
+## Chapter 5 Interrupts and device drivers
+
+驱动程序在两部分执行：上半部分在进程的内核线程中执行（syscall，比如I/O），下半部分在中断时执行
+
+
+
+console driver 接收用户输入的字符，通过UART串行端口硬件连接到RISC-V
+
+
+
+用户type一个字符，UART硬件要求RISC-V发出一个中断，这将激活trap handler，handler调用`devintr`，它会去查看`scause`来确定中断来自外部设备，然后它要求硬件单元PLIC告诉它哪个设备被中断了，如果是UART，`devintr`调用`uartintr`
+
+
+
+`uartintr`从UART读取任何正在等待的输入字符，并将他们交给`consoleintr`；它并不会等待字符，因为未来的输入会引发中断；它的作用是在`cons.buf`中积累字符，直到一整行到达，他也会对空格和特殊字符进行特殊处理，当换行符被接受，`consoleintr`唤醒正在等待的`consoleread`，后者将字符串复制到user space

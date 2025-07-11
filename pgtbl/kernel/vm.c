@@ -599,7 +599,7 @@ void vmprint_helper(pagetable_t pagetable, int level, uint64 va) {
       		continue;
 		
 		for (int i = level; i < 3; i++) {
-			printf("..");
+			printf(" ..");
 		}
 		printf("%p: pte %p pa %p\n", (pagetable_t)va, (pagetable_t)pte, (pagetable_t)PTE2PA(pte));
 		if((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
