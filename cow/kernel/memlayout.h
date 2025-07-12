@@ -41,6 +41,7 @@
 
 // map the trampoline page to the highest address,
 // in both user and kernel space.
+#define PGSIZE 4096 // Page size in bytes
 #define TRAMPOLINE (MAXVA - PGSIZE)
 
 // map kernel stacks beneath the trampoline,
@@ -57,3 +58,9 @@
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+
+#define PG2INDEX(pa) ((((uint64)pa) - KERNBASE) / PGSIZE)
+#define MAXINDEX PG2INDEX(PHYSTOP)
+#define REFCOUNT(pa) ref_count[PG2INDEX(pa)]
+
+int ref_count[MAXINDEX];

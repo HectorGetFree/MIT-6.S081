@@ -14,6 +14,7 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+extern struct spinlock ref_count_lock;
 
 // Make a direct-map page table for the kernel.
 pagetable_t
@@ -335,13 +336,20 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       kfree(mem);
       goto err;
     }
-    refcot_inc(pa);
+    ref_count_inc(pa);
   }
   return 0;
 
  err:
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
+}
+
+void ref_count_inc(void* pa) 
+{
+  acquire(&ref_count_lock);
+  REFCOUNT(pa)++;
+  release(&ref_count_lock);
 }
 
 // mark a PTE invalid for user access.
