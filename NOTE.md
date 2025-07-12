@@ -456,7 +456,7 @@ return address 在fp offset -8处
 
 ## Chapter 5 Interrupts and device drivers
 
-驱动程序在两部分执行：上半部分在进程的内核线程中执行（syscall，比如I/O），下半部分在中断时执行
+驱动程序在两部分执行：上半部分在进程的内核线程中执行（syscall，比如I/O），下半部分在中断时执行（handler）
 
 
 
@@ -469,3 +469,13 @@ console driver 接收用户输入的字符，通过UART串行端口硬件连接�
 
 
 `uartintr`从UART读取任何正在等待的输入字符，并将他们交给`consoleintr`；它并不会等待字符，因为未来的输入会引发中断；它的作用是在`cons.buf`中积累字符，直到一整行到达，他也会对空格和特殊字符进行特殊处理，当换行符被接受，`consoleintr`唤醒正在等待的`consoleread`，后者将字符串复制到user space
+
+
+
+## COW lab
+
+cow fork()为子进程创建页表，包含从用户内存指向父进程物理页的PTE。它将所有的父子进程中所有的user PTE标记为只读
+
+当任何一个进程尝试写入COW页时，CPU会强制发生页错误，handler监测情况，然后分配新的物理页，将原来的页复制到新页，然后修改相关的PTE来指向新的物理页，这时PTE标记为可写
+
+cow fork()应该在此物理页的所有饮用页表消失时被释放
