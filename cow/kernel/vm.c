@@ -322,12 +322,16 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    pa = PTE2PA(*pte); // 获取物理地址
+    flags = PTE_FLAGS(*pte); // 获取标识位
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+
+    // 先擦除标识位PTE_W
+    flags = flags & (~PTE_W);
+    // 然后新页表映射到原来的物理地址
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
       kfree(mem);
       goto err;
     }
