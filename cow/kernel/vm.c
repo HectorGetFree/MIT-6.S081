@@ -323,18 +323,19 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte); // 获取物理地址
+    *pte = *pte & (~PTE_W); // 擦除PTE_W标记
+    *pte |= PTE_COW; // 标记为COW页
     flags = PTE_FLAGS(*pte); // 获取标识位
     // if((mem = kalloc()) == 0)
     //   goto err;
     // memmove(mem, (char*)pa, PGSIZE);
-
-    // 先擦除标识位PTE_W
-    flags = flags & (~PTE_W);
+    
     // 然后新页表映射到原来的物理地址
     if(mappages(new, i, PGSIZE, pa, flags) != 0){
       kfree(mem);
       goto err;
     }
+    refcot_inc(pa);
   }
   return 0;
 
@@ -452,4 +453,26 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+
+int is_copied_COW(uint64 pgtbl, uint64 va) {
+  // 检查虚拟地址是否合法
+  if (va > MAXVA) {
+    return 0;
+  } 
+
+  pte_t *pte = walk(pgtbl, va, 0);
+
+  if (pte == 0) {
+    return 0; // pte 不存在
+  }
+  if (*pte & PTE_V == 0) {
+    return 0; // pte无效
+  }
+  if (*pte & PTE_U == 0) {
+    return 0; // pte无法被用户获取
+  }
+
+  return *pte & PTE_COW;
 }

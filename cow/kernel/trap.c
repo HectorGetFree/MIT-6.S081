@@ -67,43 +67,10 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else if (r_scause() == 7) {
-    // 写时页错误
-    // 使用kalloc()来分配物理页
-    pte_t *pte;
-    uint64 pa, i;
-    uint flags;
-    char *mem;
-
-    for(i = 0; i < p->sz; i += PGSIZE){
-      if((pte = walk(p->pagetable, i, 0)) == 0)
-        panic("uvmcopy: pte should exist");
-      if((*pte & PTE_V) == 0)
-        panic("uvmcopy: page not present");
-      pa = PTE2PA(*pte); // 获取物理地址
-      flags = PTE_FLAGS(*pte); // 获取标识位
-      
-      if (flags & PTE_COW && flags & PTE_W) {
-        p->killed = 1;
-      }
-      if((mem = kalloc()) == 0)
-        goto err;
-      memmove(mem, (char*)pa, PGSIZE);
-
-      // 恢复标识位PTE_W
-      flags = flags & (PTE_W);
-      // 然后页表映射到新的物理地址
-      if(mappages(p->pagetable, i, PGSIZE, (uint64)mem, flags) != 0){
-        kfree(mem);
-        goto err;
-      }
+  } else if (r_scause() == 15 && is_copied_COW(p->pagetable, r_stval())) {
+    if (COW_alloc(p->pagetable, r_stval()) < 0) {
+      p->killed = 1;
     }
-  return 0;
-
-  err:
-    uvmunmap(p->pagetable, 0, i / PGSIZE, 1);
-    return -1;
-
   } else {
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
@@ -120,6 +87,36 @@ usertrap(void)
   usertrapret();
 }
 
+int COW_alloc(pagetable_t pgtbl, uint64 va) 
+{
+  pte_t *pte = walk(pgtbl, va, 0);
+  uint flags = PTE_FLAGS(*pte);
+
+  if (pte == 0) {
+    return -1;
+  }
+
+
+  // 分配内存
+  pagetable_t new_pg = kalloc();
+  if (!new_pg) {
+    return -1;
+  }
+  
+  // 经过复制后就不再是有效的COW了
+  *pte &= ~PTE_COW;
+  *pte |= PTE_W; // 但是可以写了
+
+  memmove(new_pg, PTE2PA(*pte), PGSIZE); // 复制:将原来的物理页复制到新物理页
+  uvmunmap(pgtbl, PGROUNDDOWN(va), 1, 1); // 取消pg和原来虚拟地址的映射
+
+  // 重新映射
+  if (mappages(pgtbl, PGROUNDDOWN(va), PGSIZE, new_pg, flags) < 0) {
+    kfree(new_pg);
+    return -1;
+  }
+  return 0;
+}
 //
 // return to user space
 //

@@ -16,6 +16,7 @@ int nextpid = 1;
 struct spinlock pid_lock;
 
 extern void forkret(void);
+extern int ref_count[PHYSTOP / 4096];
 static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
@@ -294,8 +295,9 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+  uint64 adr = (uint64)(np->pagetable);
+  ref_count[adr / PGSIZE]++;
   np->sz = p->sz;
-
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
