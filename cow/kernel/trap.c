@@ -67,6 +67,43 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 7) {
+    // 写时页错误
+    // 使用kalloc()来分配物理页
+    pte_t *pte;
+    uint64 pa, i;
+    uint flags;
+    char *mem;
+
+    for(i = 0; i < p->sz; i += PGSIZE){
+      if((pte = walk(p->pagetable, i, 0)) == 0)
+        panic("uvmcopy: pte should exist");
+      if((*pte & PTE_V) == 0)
+        panic("uvmcopy: page not present");
+      pa = PTE2PA(*pte); // 获取物理地址
+      flags = PTE_FLAGS(*pte); // 获取标识位
+      
+      if (flags & PTE_COW && flags & PTE_W) {
+        p->killed = 1;
+      }
+      if((mem = kalloc()) == 0)
+        goto err;
+      memmove(mem, (char*)pa, PGSIZE);
+
+      // 恢复标识位PTE_W
+      flags = flags & (PTE_W);
+      // 然后页表映射到新的物理地址
+      if(mappages(p->pagetable, i, PGSIZE, (uint64)mem, flags) != 0){
+        kfree(mem);
+        goto err;
+      }
+    }
+  return 0;
+
+  err:
+    uvmunmap(p->pagetable, 0, i / PGSIZE, 1);
+    return -1;
+
   } else {
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
