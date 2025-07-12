@@ -13,6 +13,8 @@ void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
+        
+int refcount[PHYSTOP / PGSIZE];
 
 struct run {
   struct run *next;
@@ -23,13 +25,10 @@ struct {
   struct run *freelist;
 } kmem;
 
-struct spinlock ref_count_lock;
-
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
-  initlock(&ref_count_lock, "ref count");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -38,8 +37,22 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE) {
+    refcount[(uint64)p / 4096] = 1;
     kfree(p);
+  }
+    
+}
+
+void 
+incref(uint64 pa) 
+{
+  int pn = pa / 4096;
+  acquire(&kmem.lock);
+  if (pa >= PHYSTOP || refcount[pn] < 1)
+    panic("incref");
+  refcount[pn] += 1;
+  release(&kmem.lock);
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -54,21 +67,25 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  
-  acquire(&ref_count_lock); // 加锁
-  REFCOUNT(r)--;
-  if (REFCOUNT(r) == 0) {
-    // Fill with junk to catch dangling refs.
-    memset(pa, 1, PGSIZE);
-  
-    r = (struct run*)pa;
+  acquire(&kmem.lock);
+  int pn = (uint64)pa / 4096;
+  if (refcount[pn] < 1) 
+    panic("kfree ref");
+  refcount[pn] -= 1;
+  int tem = refcount[pn];
+  release(&kmem.lock);
+  // Fill with junk to catch dangling refs.
 
-    acquire(&kmem.lock);
-    r->next = kmem.freelist;
-    kmem.freelist = r;
-    release(&kmem.lock);
-  }
-  release(&ref_count_lock);
+  if (tem > 0) 
+    return;
+  memset(pa, 1, PGSIZE);
+  
+  r = (struct run*)pa;
+
+  acquire(&kmem.lock);
+  r->next = kmem.freelist;
+  kmem.freelist = r;
+  release(&kmem.lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -85,10 +102,13 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
-  
-  uint64 r_adr = &r;
-  REFCOUNT(r) = 1; // 设置引用次数为1
+    int pn = (uint64) r / 4096;
+    if (refcount[pn] != 0) 
+      panic("kalloc ref");
+    refcount[pn] = 1;
+  }
+    
   return (void*)r;
 }

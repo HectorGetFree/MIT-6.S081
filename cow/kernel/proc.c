@@ -294,8 +294,6 @@ fork(void)
     release(&np->lock);
     return -1;
   }
-  uint64 adr = (uint64)(np->pagetable);
-  ref_count[adr / PGSIZE]++;
   np->sz = p->sz;
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);

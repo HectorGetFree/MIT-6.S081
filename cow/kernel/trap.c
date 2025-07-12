@@ -29,6 +29,34 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+int cowfault(pagetable_t pagetable, uint64 va)
+{
+  if (va > MAXVA) 
+    return -1;
+  
+  pte_t *pte = walk(pagetable, va, 0);
+  if (pte == 0) 
+    return -1;
+  
+  if ((*pte & PTE_V) == 0 && (*pte & PTE_U) == 0)
+    return -1;
+
+
+  uint64 pa1 = PTE2PA(*pte);
+  uint64 pa2 = (uint64)kalloc();
+  if (pa2 == 0) {
+    printf("cow kalloc failed\n");
+    return -1;
+  }
+  memmove((void *)pa2, (void *)pa1, PGSIZE);
+
+  kfree((void *)pa1);
+
+  *pte = PA2PTE(pa2) | PTE_V | PTE_U | PTE_R | PTE_W | PTE_X;
+
+  return 0;
+}
+ 
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -67,8 +95,8 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else if (r_scause() == 15 && is_copied_COW(p->pagetable, r_stval())) {
-    if (COW_alloc(p->pagetable, r_stval()) < 0) {
+  } else if (r_scause() == 15) {
+    if (cowfault(p->pagetable, r_stval()) < 0) {
       p->killed = 1;
     }
   } else {
@@ -87,36 +115,6 @@ usertrap(void)
   usertrapret();
 }
 
-int COW_alloc(pagetable_t pgtbl, uint64 va) 
-{
-  pte_t *pte = walk(pgtbl, va, 0);
-  uint flags = PTE_FLAGS(*pte);
-
-  if (pte == 0) {
-    return -1;
-  }
-
-
-  // 分配内存
-  pagetable_t new_pg = kalloc();
-  if (!new_pg) {
-    return -1;
-  }
-  
-  // 经过复制后就不再是有效的COW了
-  *pte &= ~PTE_COW;
-  *pte |= PTE_W; // 但是可以写了
-
-  memmove(new_pg, PTE2PA(*pte), PGSIZE); // 复制:将原来的物理页复制到新物理页
-  uvmunmap(pgtbl, PGROUNDDOWN(va), 1, 1); // 取消pg和原来虚拟地址的映射
-
-  // 重新映射
-  if (mappages(pgtbl, PGROUNDDOWN(va), PGSIZE, new_pg, flags) < 0) {
-    kfree(new_pg);
-    return -1;
-  }
-  return 0;
-}
 //
 // return to user space
 //

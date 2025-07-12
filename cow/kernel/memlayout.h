@@ -58,9 +58,3 @@
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
-
-#define PG2INDEX(pa) ((((uint64)pa) - KERNBASE) / PGSIZE)
-#define MAXINDEX PG2INDEX(PHYSTOP)
-#define REFCOUNT(pa) ref_count[PG2INDEX(pa)]
-
-int ref_count[MAXINDEX];
