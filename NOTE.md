@@ -503,9 +503,9 @@ plan:
 
 ### Net driver
 
+参考[KuangjuX](https://github.com/KuangjuX/xv6-riscv-solution/tree/main/net)
+
 `kernel/net.c`和`kernel/net.h` -- 包含了网络协议栈的部分实现，包括用户进程发送UDP数据包的完整代码，但是缺少接收数据并将他们传送到用户空间的代码
-
-
 
 NIC
 

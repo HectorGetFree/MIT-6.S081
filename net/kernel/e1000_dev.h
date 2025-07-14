@@ -20,7 +20,7 @@
 #define E1000_TDBAL    (0x03800/4)  /* TX Descriptor Base Address Low - RW */
 #define E1000_TDLEN    (0x03808/4)  /* TX Descriptor Length - RW */
 #define E1000_TDH      (0x03810/4)  /* TX Descriptor Head - RW */
-#define E1000_TDT      (0x03818/4)  /* TX Descriptor Tail - RW */
+#define E1000_TDT      (0x03818/4)  /* TX Descripotr Tail - RW */
 #define E1000_MTA      (0x05200/4)  /* Multicast Table Array - RW Array */
 #define E1000_RA       (0x05400/4)  /* Receive Address - RW Array */
 
@@ -28,7 +28,7 @@
 #define E1000_CTL_SLU     0x00000040    /* set link up */
 #define E1000_CTL_FRCSPD  0x00000800    /* force speed */
 #define E1000_CTL_FRCDPLX 0x00001000    /* force duplex */
-#define E1000_CTL_RST     0x04000000    /* full reset */
+#define E1000_CTL_RST     0x00400000    /* full reset */
 
 /* Transmit Control */
 #define E1000_TCTL_RST    0x00000001    /* software reset */

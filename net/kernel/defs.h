@@ -1,7 +1,3 @@
-#ifdef LAB_MMAP
-typedef unsigned long size_t;
-typedef long int off_t;
-#endif
 struct buf;
 struct context;
 struct file;
@@ -12,6 +8,10 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+#ifdef LAB_NET
+struct mbuf;
+struct sock;
+#endif
 
 // bio.c
 void            binit(void);
@@ -81,7 +81,7 @@ int             piperead(struct pipe*, uint64, int);
 int             pipewrite(struct pipe*, uint64, int);
 
 // printf.c
-int            printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
+void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
 
@@ -181,12 +181,6 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
-#if defined(LAB_PGTBL) || defined(SOL_MMAP)
-void            vmprint(pagetable_t);
-#endif
-#ifdef LAB_PGTBL
-pte_t*          pgpte(pagetable_t, uint64);
-#endif
 
 // plic.c
 void            plicinit(void);
@@ -210,14 +204,12 @@ int             copyin_new(pagetable_t, char *, uint64, uint64);
 int             copyinstr_new(pagetable_t, char *, uint64, uint64);
 #endif
 
-#ifdef LAB_LOCK
 // stats.c
 void            statsinit(void);
 void            statsinc(void);
 
 // sprintf.c
-int             snprintf(char*, unsigned long, const char*, ...);
-#endif
+int             snprintf(char*, int, char*, ...);
 
 #ifdef KCSAN
 void            kcsaninit();
@@ -230,10 +222,17 @@ void            pci_init();
 // e1000.c
 void            e1000_init(uint32 *);
 void            e1000_intr(void);
-int             e1000_transmit(char *, int);
+int             e1000_transmit(struct mbuf*);
 
 // net.c
-void            netinit(void);
-void            net_rx(char *buf, int len);
+void            net_rx(struct mbuf*);
+void            net_tx_udp(struct mbuf*, uint32, uint16, uint16);
 
+// sysnet.c
+void            sockinit(void);
+int             sockalloc(struct file **, uint32, uint16, uint16);
+void            sockclose(struct sock *);
+int             sockread(struct sock *, uint64, int);
+int             sockwrite(struct sock *, uint64, int);
+void            sockrecvudp(struct mbuf*, uint32, uint16, uint16);
 #endif

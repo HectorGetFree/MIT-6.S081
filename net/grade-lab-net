@@ -6,53 +6,30 @@ from gradelib import *
 
 r = Runner(save("xv6.out"))
 
-serverout = None
-
-@test(0, "running nettest")
+@test(0, "running nettests")
 def test_nettest():
-    global serverout
-    server = subprocess.Popen(["python3", "./nettest.py", "grade"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    server = subprocess.Popen(["make", "server"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     r.run_qemu(shell_script([
-        'nettest grade'
+        'nettests'
     ]), timeout=30)
     server.terminate()
-    serverout = server.communicate()[0].decode()
+    server.communicate()
 
-@test(20, "nettest: txone", parent=test_nettest)
+@test(40, "nettest: ping", parent=test_nettest)
 def test_nettest_():
-    assert_lines_match(serverout, 'txone: OK')
+    r.match('^testing ping: OK$')
 
-@test(20, "nettest: arp_rx", parent=test_nettest)
+@test(20, "nettest: single process", parent=test_nettest)
 def test_nettest_():
-    r.match('arp_rx: received an ARP packet')
+    r.match('^testing single-process pings: OK$')
 
-@test(20, "nettest: ip_rx", parent=test_nettest)
-def test_nettest_():
-    r.match('ip_rx: received an IP packet')
+@test(20, "nettest: multi-process", parent=test_nettest)
+def test_nettest_fork_test():
+    r.match('^testing multi-process pings: OK$')
 
-@test(20, "nettest: ping0", parent=test_nettest)
-def test_nettest_():
-    r.match('^ping0: OK$')
-
-@test(20, "nettest: ping1", parent=test_nettest)
-def test_nettest_():
-    r.match('^ping1: OK$')
-
-@test(20, "nettest: ping2", parent=test_nettest)
-def test_nettest_():
-    r.match('^ping2: OK$')
-
-@test(30, "nettest: ping3", parent=test_nettest)
-def test_nettest_():
-    r.match('^ping3: OK$')
-
-@test(10, "nettest: dns", parent=test_nettest)
-def test_nettest_():
-    r.match('^dns: OK$')
-
-@test(10, "nettest: free", parent=test_nettest)
-def test_nettest_():
-    r.match('^free: OK$')
+@test(19, "nettest: DNS", parent=test_nettest)
+def test_nettest_dns_test():
+    r.match('^DNS OK$')
 
 #@test(10, "answers-net.txt")
 #def test_answers():

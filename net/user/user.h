@@ -1,7 +1,3 @@
-#ifdef LAB_MMAP
-typedef unsigned long size_t;
-typedef long int off_t;
-#endif
 struct stat;
 
 // system calls
@@ -27,15 +23,12 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 #ifdef LAB_NET
-int bind(uint16);
-int unbind(uint16);
-int send(uint16, uint32, uint16, char *, uint32);
-int recv(uint16, uint32*, uint16*, char *, uint32);
+int connect(uint32, uint16, uint16);
 #endif
 #ifdef LAB_PGTBL
+int pgaccess(void *base, int len, void *mask);
+// usyscall region
 int ugetpid(void);
-uint64 pgpte(void*);
-void kpgtbl(void);
 #endif
 
 // ulib.c
@@ -44,18 +37,14 @@ char* strcpy(char*, const char*);
 void *memmove(void*, const void*, int);
 char* strchr(const char*, char c);
 int strcmp(const char*, const char*);
-void fprintf(int, const char*, ...) __attribute__ ((format (printf, 2, 3)));
-void printf(const char*, ...) __attribute__ ((format (printf, 1, 2)));
+void fprintf(int, const char*, ...);
+void printf(const char*, ...);
 char* gets(char*, int max);
 uint strlen(const char*);
 void* memset(void*, int, uint);
+void* malloc(uint);
+void free(void*);
 int atoi(const char*);
 int memcmp(const void *, const void *, uint);
 void *memcpy(void *, const void *, uint);
-#ifdef LAB_LOCK
 int statistics(void*, int);
-#endif
-
-// umalloc.c
-void* malloc(uint);
-void free(void*);

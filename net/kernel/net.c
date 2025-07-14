@@ -1,83 +1,127 @@
+//
+// networking protocol support (IP, UDP, ARP, etc.).
+//
+
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
 #include "proc.h"
-#include "defs.h"
-#include "fs.h"
-#include "sleeplock.h"
-#include "file.h"
 #include "net.h"
+#include "defs.h"
 
-// xv6's ethernet and IP addresses
+static uint32 local_ip = MAKE_IP_ADDR(10, 0, 2, 15); // qemu's idea of the guest IP
 static uint8 local_mac[ETHADDR_LEN] = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x56 };
-static uint32 local_ip = MAKE_IP_ADDR(10, 0, 2, 15);
+static uint8 broadcast_mac[ETHADDR_LEN] = { 0xFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF };
 
-// qemu host's ethernet address.
-static uint8 host_mac[ETHADDR_LEN] = { 0x52, 0x55, 0x0a, 0x00, 0x02, 0x02 };
+// Strips data from the start of the buffer and returns a pointer to it.
+// Returns 0 if less than the full requested length is available.
+char *
+mbufpull(struct mbuf *m, unsigned int len)
+{
+  char *tmp = m->head;
+  if (m->len < len)
+    return 0;
+  m->len -= len;
+  m->head += len;
+  return tmp;
+}
 
-static struct spinlock netlock;
+// Prepends data to the beginning of the buffer and returns a pointer to it.
+char *
+mbufpush(struct mbuf *m, unsigned int len)
+{
+  m->head -= len;
+  if (m->head < m->buf)
+    panic("mbufpush");
+  m->len += len;
+  return m->head;
+}
 
+// Appends data to the end of the buffer and returns a pointer to it.
+char *
+mbufput(struct mbuf *m, unsigned int len)
+{
+  char *tmp = m->head + m->len;
+  m->len += len;
+  if (m->len > MBUF_SIZE)
+    panic("mbufput");
+  return tmp;
+}
+
+// Strips data from the end of the buffer and returns a pointer to it.
+// Returns 0 if less than the full requested length is available.
+char *
+mbuftrim(struct mbuf *m, unsigned int len)
+{
+  if (len > m->len)
+    return 0;
+  m->len -= len;
+  return m->head + m->len;
+}
+
+// Allocates a packet buffer.
+struct mbuf *
+mbufalloc(unsigned int headroom)
+{
+  struct mbuf *m;
+ 
+  if (headroom > MBUF_SIZE)
+    return 0;
+  m = kalloc();
+  if (m == 0)
+    return 0;
+  m->next = 0;
+  m->head = (char *)m->buf + headroom;
+  m->len = 0;
+  memset(m->buf, 0, sizeof(m->buf));
+  return m;
+}
+
+// Frees a packet buffer.
 void
-netinit(void)
+mbuffree(struct mbuf *m)
 {
-  initlock(&netlock, "netlock");
+  kfree(m);
 }
 
-
-//
-// bind(int port)
-// prepare to receive UDP packets address to the port,
-// i.e. allocate any queues &c needed.
-//
-uint64
-sys_bind(void)
+// Pushes an mbuf to the end of the queue.
+void
+mbufq_pushtail(struct mbufq *q, struct mbuf *m)
 {
-  //
-  // Your code here.
-  //
-
-  return -1;
+  m->next = 0;
+  if (!q->head){
+    q->head = q->tail = m;
+    return;
+  }
+  q->tail->next = m;
+  q->tail = m;
 }
 
-//
-// unbind(int port)
-// release any resources previously created by bind(port);
-// from now on UDP packets addressed to port should be dropped.
-//
-uint64
-sys_unbind(void)
+// Pops an mbuf from the start of the queue.
+struct mbuf *
+mbufq_pophead(struct mbufq *q)
 {
-  //
-  // Optional: Your code here.
-  //
-
-  return 0;
+  struct mbuf *head = q->head;
+  if (!head)
+    return 0;
+  q->head = head->next;
+  return head;
 }
 
-//
-// recv(int dport, int *src, short *sport, char *buf, int maxlen)
-// if there's a received UDP packet already queued that was
-// addressed to dport, then return it.
-// otherwise wait for such a packet.
-//
-// sets *src to the IP source address.
-// sets *sport to the UDP source port.
-// copies up to maxlen bytes of UDP payload to buf.
-// returns the number of bytes copied,
-// and -1 if there was an error.
-//
-// dport, *src, and *sport are host byte order.
-// bind(dport) must previously have been called.
-//
-uint64
-sys_recv(void)
+// Returns one (nonzero) if the queue is empty.
+int
+mbufq_empty(struct mbufq *q)
 {
-  //
-  // Your code here.
-  //
-  return -1;
+  return q->head == 0;
+}
+
+// Intializes a queue of mbufs.
+void
+mbufq_init(struct mbufq *q)
+{
+  q->head = 0;
 }
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
@@ -115,145 +159,216 @@ in_cksum(const unsigned char *addr, int len)
   return answer;
 }
 
-//
-// send(int sport, int dst, int dport, char *buf, int len)
-//
-uint64
-sys_send(void)
+// sends an ethernet packet
+static void
+net_tx_eth(struct mbuf *m, uint16 ethtype)
 {
-  struct proc *p = myproc();
-  int sport;
-  int dst;
-  int dport;
-  uint64 bufaddr;
-  int len;
+  struct eth *ethhdr;
 
-  argint(0, &sport);
-  argint(1, &dst);
-  argint(2, &dport);
-  argaddr(3, &bufaddr);
-  argint(4, &len);
-
-  int total = len + sizeof(struct eth) + sizeof(struct ip) + sizeof(struct udp);
-  if(total > PGSIZE)
-    return -1;
-
-  char *buf = kalloc();
-  if(buf == 0){
-    printf("sys_send: kalloc failed\n");
-    return -1;
+  ethhdr = mbufpushhdr(m, *ethhdr);
+  memmove(ethhdr->shost, local_mac, ETHADDR_LEN);
+  // In a real networking stack, dhost would be set to the address discovered
+  // through ARP. Because we don't support enough of the ARP protocol, set it
+  // to broadcast instead.
+  memmove(ethhdr->dhost, broadcast_mac, ETHADDR_LEN);
+  ethhdr->type = htons(ethtype);
+  if (e1000_transmit(m)) {
+    mbuffree(m);
   }
-  memset(buf, 0, PGSIZE);
+}
 
-  struct eth *eth = (struct eth *) buf;
-  memmove(eth->dhost, host_mac, ETHADDR_LEN);
-  memmove(eth->shost, local_mac, ETHADDR_LEN);
-  eth->type = htons(ETHTYPE_IP);
+// sends an IP packet
+static void
+net_tx_ip(struct mbuf *m, uint8 proto, uint32 dip)
+{
+  struct ip *iphdr;
 
-  struct ip *ip = (struct ip *)(eth + 1);
-  ip->ip_vhl = 0x45; // version 4, header length 4*5
-  ip->ip_tos = 0;
-  ip->ip_len = htons(sizeof(struct ip) + sizeof(struct udp) + len);
-  ip->ip_id = 0;
-  ip->ip_off = 0;
-  ip->ip_ttl = 100;
-  ip->ip_p = IPPROTO_UDP;
-  ip->ip_src = htonl(local_ip);
-  ip->ip_dst = htonl(dst);
-  ip->ip_sum = in_cksum((unsigned char *)ip, sizeof(*ip));
+  // push the IP header
+  iphdr = mbufpushhdr(m, *iphdr);
+  memset(iphdr, 0, sizeof(*iphdr));
+  iphdr->ip_vhl = (4 << 4) | (20 >> 2);
+  iphdr->ip_p = proto;
+  iphdr->ip_src = htonl(local_ip);
+  iphdr->ip_dst = htonl(dip);
+  iphdr->ip_len = htons(m->len);
+  iphdr->ip_ttl = 100;
+  iphdr->ip_sum = in_cksum((unsigned char *)iphdr, sizeof(*iphdr));
 
-  struct udp *udp = (struct udp *)(ip + 1);
-  udp->sport = htons(sport);
-  udp->dport = htons(dport);
-  udp->ulen = htons(len + sizeof(struct udp));
+  // now on to the ethernet layer
+  net_tx_eth(m, ETHTYPE_IP);
+}
 
-  char *payload = (char *)(udp + 1);
-  if(copyin(p->pagetable, payload, bufaddr, len) < 0){
-    kfree(buf);
-    printf("send: copyin failed\n");
+// sends a UDP packet
+void
+net_tx_udp(struct mbuf *m, uint32 dip,
+           uint16 sport, uint16 dport)
+{
+  struct udp *udphdr;
+
+  // put the UDP header
+  udphdr = mbufpushhdr(m, *udphdr);
+  udphdr->sport = htons(sport);
+  udphdr->dport = htons(dport);
+  udphdr->ulen = htons(m->len);
+  udphdr->sum = 0; // zero means no checksum is provided
+
+  // now on to the IP layer
+  net_tx_ip(m, IPPROTO_UDP, dip);
+}
+
+// sends an ARP packet
+static int
+net_tx_arp(uint16 op, uint8 dmac[ETHADDR_LEN], uint32 dip)
+{
+  struct mbuf *m;
+  struct arp *arphdr;
+
+  m = mbufalloc(MBUF_DEFAULT_HEADROOM);
+  if (!m)
     return -1;
-  }
 
-  e1000_transmit(buf, total);
+  // generic part of ARP header
+  arphdr = mbufputhdr(m, *arphdr);
+  arphdr->hrd = htons(ARP_HRD_ETHER);
+  arphdr->pro = htons(ETHTYPE_IP);
+  arphdr->hln = ETHADDR_LEN;
+  arphdr->pln = sizeof(uint32);
+  arphdr->op = htons(op);
 
+  // ethernet + IP part of ARP header
+  memmove(arphdr->sha, local_mac, ETHADDR_LEN);
+  arphdr->sip = htonl(local_ip);
+  memmove(arphdr->tha, dmac, ETHADDR_LEN);
+  arphdr->tip = htonl(dip);
+
+  // header is ready, send the packet
+  net_tx_eth(m, ETHTYPE_ARP);
   return 0;
 }
 
-void
-ip_rx(char *buf, int len)
+// receives an ARP packet
+static void
+net_rx_arp(struct mbuf *m)
 {
-  // don't delete this printf; make grade depends on it.
-  static int seen_ip = 0;
-  if(seen_ip == 0)
-    printf("ip_rx: received an IP packet\n");
-  seen_ip = 1;
+  struct arp *arphdr;
+  uint8 smac[ETHADDR_LEN];
+  uint32 sip, tip;
 
-  //
-  // Your code here.
-  //
-  
+  arphdr = mbufpullhdr(m, *arphdr);
+  if (!arphdr)
+    goto done;
+
+  // validate the ARP header
+  if (ntohs(arphdr->hrd) != ARP_HRD_ETHER ||
+      ntohs(arphdr->pro) != ETHTYPE_IP ||
+      arphdr->hln != ETHADDR_LEN ||
+      arphdr->pln != sizeof(uint32)) {
+    goto done;
+  }
+
+  // only requests are supported so far
+  // check if our IP was solicited
+  tip = ntohl(arphdr->tip); // target IP address
+  if (ntohs(arphdr->op) != ARP_OP_REQUEST || tip != local_ip)
+    goto done;
+
+  // handle the ARP request
+  memmove(smac, arphdr->sha, ETHADDR_LEN); // sender's ethernet address
+  sip = ntohl(arphdr->sip); // sender's IP address (qemu's slirp)
+  net_tx_arp(ARP_OP_REPLY, smac, sip);
+
+done:
+  mbuffree(m);
 }
 
-//
-// send an ARP reply packet to tell qemu to map
-// xv6's ip address to its ethernet address.
-// this is the bare minimum needed to persuade
-// qemu to send IP packets to xv6; the real ARP
-// protocol is more complex.
-//
-void
-arp_rx(char *inbuf)
+// receives a UDP packet
+static void
+net_rx_udp(struct mbuf *m, uint16 len, struct ip *iphdr)
 {
-  static int seen_arp = 0;
+  struct udp *udphdr;
+  uint32 sip;
+  uint16 sport, dport;
 
-  if(seen_arp){
-    kfree(inbuf);
+
+  udphdr = mbufpullhdr(m, *udphdr);
+  if (!udphdr)
+    goto fail;
+
+  // TODO: validate UDP checksum
+
+  // validate lengths reported in headers
+  if (ntohs(udphdr->ulen) != len)
+    goto fail;
+  len -= sizeof(*udphdr);
+  if (len > m->len)
+    goto fail;
+  // minimum packet size could be larger than the payload
+  mbuftrim(m, m->len - len);
+
+  // parse the necessary fields
+  sip = ntohl(iphdr->ip_src);
+  sport = ntohs(udphdr->sport);
+  dport = ntohs(udphdr->dport);
+  sockrecvudp(m, sip, dport, sport);
+  return;
+
+fail:
+  mbuffree(m);
+}
+
+// receives an IP packet
+static void
+net_rx_ip(struct mbuf *m)
+{
+  struct ip *iphdr;
+  uint16 len;
+
+  iphdr = mbufpullhdr(m, *iphdr);
+  if (!iphdr)
+	  goto fail;
+
+  // check IP version and header len
+  if (iphdr->ip_vhl != ((4 << 4) | (20 >> 2)))
+    goto fail;
+  // validate IP checksum
+  if (in_cksum((unsigned char *)iphdr, sizeof(*iphdr)))
+    goto fail;
+  // can't support fragmented IP packets
+  if (htons(iphdr->ip_off) != 0)
+    goto fail;
+  // is the packet addressed to us?
+  if (htonl(iphdr->ip_dst) != local_ip)
+    goto fail;
+  // can only support UDP
+  if (iphdr->ip_p != IPPROTO_UDP)
+    goto fail;
+
+  len = ntohs(iphdr->ip_len) - sizeof(*iphdr);
+  net_rx_udp(m, len, iphdr);
+  return;
+
+fail:
+  mbuffree(m);
+}
+
+// called by e1000 driver's interrupt handler to deliver a packet to the
+// networking stack
+void net_rx(struct mbuf *m)
+{
+  struct eth *ethhdr;
+  uint16 type;
+
+  ethhdr = mbufpullhdr(m, *ethhdr);
+  if (!ethhdr) {
+    mbuffree(m);
     return;
   }
-  printf("arp_rx: received an ARP packet\n");
-  seen_arp = 1;
 
-  struct eth *ineth = (struct eth *) inbuf;
-  struct arp *inarp = (struct arp *) (ineth + 1);
-
-  char *buf = kalloc();
-  if(buf == 0)
-    panic("send_arp_reply");
-  
-  struct eth *eth = (struct eth *) buf;
-  memmove(eth->dhost, ineth->shost, ETHADDR_LEN); // ethernet destination = query source
-  memmove(eth->shost, local_mac, ETHADDR_LEN); // ethernet source = xv6's ethernet address
-  eth->type = htons(ETHTYPE_ARP);
-
-  struct arp *arp = (struct arp *)(eth + 1);
-  arp->hrd = htons(ARP_HRD_ETHER);
-  arp->pro = htons(ETHTYPE_IP);
-  arp->hln = ETHADDR_LEN;
-  arp->pln = sizeof(uint32);
-  arp->op = htons(ARP_OP_REPLY);
-
-  memmove(arp->sha, local_mac, ETHADDR_LEN);
-  arp->sip = htonl(local_ip);
-  memmove(arp->tha, ineth->shost, ETHADDR_LEN);
-  arp->tip = inarp->sip;
-
-  e1000_transmit(buf, sizeof(*eth) + sizeof(*arp));
-
-  kfree(inbuf);
-}
-
-void
-net_rx(char *buf, int len)
-{
-  struct eth *eth = (struct eth *) buf;
-
-  if(len >= sizeof(struct eth) + sizeof(struct arp) &&
-     ntohs(eth->type) == ETHTYPE_ARP){
-    arp_rx(buf);
-  } else if(len >= sizeof(struct eth) + sizeof(struct ip) &&
-     ntohs(eth->type) == ETHTYPE_IP){
-    ip_rx(buf, len);
-  } else {
-    kfree(buf);
-  }
+  type = ntohs(ethhdr->type);
+  if (type == ETHTYPE_IP)
+    net_rx_ip(m);
+  else if (type == ETHTYPE_ARP)
+    net_rx_arp(m);
+  else
+    mbuffree(m);
 }
