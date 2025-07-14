@@ -9,7 +9,7 @@
 #include "riscv.h"
 #include "defs.h"
 
-#define STEAL_CNT 8
+#define STEAL_CNT 8 // 这里是我自己编的magic number
 
 void freerange(void *pa_start, void *pa_end);
 
