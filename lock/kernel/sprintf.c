@@ -44,6 +44,7 @@ sprintint(char *s, int xx, int base, int sign)
   return n;
 }
 
+// 字符串格式化输出
 int
 snprintf(char *buf, unsigned long sz, const char *fmt, ...)
 {

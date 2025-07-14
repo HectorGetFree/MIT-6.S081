@@ -9,6 +9,8 @@
 #include "riscv.h"
 #include "defs.h"
 
+#define STEAL_CNT 8
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -19,15 +21,49 @@ struct run {
 };
 
 struct {
-  struct spinlock lock[NCPU];
-  struct run *freelist[NCPU];
-} kmem;
+  struct spinlock lock, stlk;
+  struct run *freelist;
+  uint64 st_ret[STEAL_CNT];
+} kmems[NCPU];
+
+static uint name_sz = sizeof("kmem cpu 0");
+char kmem_lk_n[NCPU][sizeof("keme cpu 0")];
+
+int 
+steal(int cpu)
+{
+  uint st_left = STEAL_CNT;
+  int idx = 0; // 记录偷到了几个
+
+  memset(kmems[cpu].st_ret, 0, sizeof(kmems[cpu].st_ret)); // 填充
+  for (int i = 0; i < NCPU; i++) {
+    if (i == cpu) continue; // 跳过当前CPU
+
+    acquire(&kmems[i].lock); // 要偷空间必须要得到另一个CPU的锁
+
+    while (kmems[i].freelist && st_left) {// 如果当前的cpu i的空闲链表不为空并且还能接着偷
+      kmems[cpu].st_ret[idx++] = (uint64)kmems[i].freelist;
+      kmems[i].freelist = kmems[i].freelist->next; // 更新被偷的空闲链表
+      st_left--;
+    }
+
+    release(&kmems[i].lock);
+    if (st_left == 0) break; // 最多偷STEAL_CNT个
+  }
+
+  return idx;
+}
+
+
+
+
 
 void
 kinit()
 {
   for (int i = 0; i < NCPU; i++) {
-    initlock(&kmem.lock[i], "kmem");
+    snprintf(kmem_lk_n[i], name_sz, "kmem cpu %d", i); // 格式化写入字符串命名数组
+    initlock(&kmems[i].lock, kmem_lk_n[i]);
   }
   freerange(end, (void*)PHYSTOP);  
 }
@@ -63,10 +99,10 @@ kfree(void *pa)
   int id = cpuid();
   pop_off();
 
-  acquire(&kmem.lock[id]);
-  r->next = kmem.freelist[id];
-  kmem.freelist[id] = r;
-  release(&kmem.lock[id]);
+  acquire(&kmems[id].lock);
+  r->next = kmems[id].freelist;
+  kmems[id].freelist = r;
+  release(&kmems[id].lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -75,20 +111,38 @@ kfree(void *pa)
 void *
 kalloc(void)
 {
-  struct run *r;
+  struct run *r = 0;
 
   // 获取cpu编号
   push_off();
-  int id = cpuid();
-  pop_off();
+  int cpu = cpuid();
 
-  acquire(&kmem.lock[id]);
-  r = kmem.freelist[id];
-  if(r)
-    kmem.freelist[id] = r->next;
-  release(&kmem.lock[id]);
+  acquire(&kmems[cpu].lock);
+  r = kmems[cpu].freelist;
+  if(r) { // 如果本cpu的空闲列表不是空
+    kmems[cpu].freelist = r->next; // 更新空闲列表
+    release(&kmems[cpu].lock); // 释放锁
+  } else { // 否则就去偷
+    release(&kmems[cpu].lock); 
+    int ret = steal(cpu); // 我们在偷的时候让cpu不允许中断，这样可以偷页过程中处理别的进程造成重复偷页
+    if (ret <= 0) { // 没偷成
+      pop_off(); // 恢复中断
+      return 0; // 返回
+    }
+    acquire(&kmems[cpu].lock); // 重新获取本cpu的锁
+    for (int i = 0; i < ret; i++) { // 将偷来的页加到本CPU的空闲链表前面
+      if (!kmems[cpu].st_ret[i]) break;
+      ((struct run*)kmems[cpu].st_ret[i])->next = kmems[cpu].freelist; 
+      kmems[cpu].freelist = (struct run*)kmems[cpu].st_ret[i];
+    }
 
+    r = kmems[cpu].freelist;
+    kmems[cpu].freelist = r->next;
+    release(&kmems[cpu].lock);
+  }
+  
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+  pop_off();
   return (void*)r;
 }
