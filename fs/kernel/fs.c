@@ -417,6 +417,45 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
+  bn -= NINDIRECT;
+
+  if(bn < DNINDIRECT){
+    if((addr = ip->addrs[NDIRECT + 1]) == 0) { // 为空
+      addr = balloc(ip->dev);
+      if(addr == 0)
+        return 0;
+      ip->addrs[NDIRECT + 1] = addr;
+    }
+    
+    bp = bread(ip->dev, addr);  // 读取内容
+    a = (uint*)bp->data;
+
+    int idx1 = bn / NINDIRECT; // 取得 bn 对应的，一级间接块在 addr 中的下标
+    if((addr = a[idx1]) == 0){  // 一个一级块负责 256 个二级块，这里检测对应一级块是否存在
+      addr = balloc(ip->dev);
+      if (addr == 0) return 0;
+      a[idx1] = addr;
+      log_write(bp); 
+      // 标志这个块被修改了，随后会更新到磁盘的日志区
+      // 修改是因为，我们给这个储存块指针的块添加了一个新的块指针
+    } 
+
+    brelse(bp); // 释放块缓存
+    
+    bp = bread(ip->dev, addr); // bp2 为二级块的缓存
+    a = (uint*)bp->data;
+
+    int idx_b2 = bn % NINDIRECT;
+    if((addr = a[idx_b2]) == 0){
+      addr = balloc(ip->dev);
+      if (addr) {
+        a[idx_b2] = addr;
+        log_write(bp);
+      }
+    }
+    brelse(bp);
+    return addr;
+  }
   panic("bmap: out of range");
 }
 
