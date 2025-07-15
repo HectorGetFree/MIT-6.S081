@@ -503,3 +503,12 @@ sys_pipe(void)
   }
   return 0;
 }
+
+int 
+sys_symlink(char* target, char* path)
+{
+
+
+
+  return 0; 
+}
