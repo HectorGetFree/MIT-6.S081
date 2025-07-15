@@ -465,8 +465,8 @@ void
 itrunc(struct inode *ip)
 {
   int i, j;
-  struct buf *bp;
-  uint *a;
+  struct buf *bp, *bp2;
+  uint *a, *a2; // 内外循环对一个变量加锁/放锁管理不方便 -- 那就维护两个变量
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
@@ -485,6 +485,29 @@ itrunc(struct inode *ip)
     brelse(bp);
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
+  }
+
+  if(ip->addrs[NDIRECT + 1]){ // 判断 inode 是否使用了二级间接索引
+    bp = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+    a = (uint*)bp->data;
+    for (i = 0; i < NINDIRECT; i++){ // 遍历一级块
+      if(a[i]){ // 如果有数据
+        bp2 = bread(ip->dev, a[i]); // 获取这个块的对应缓存
+        a2 = (uint*)bp2->data;
+        for(j = 0; j < NINDIRECT; j++){
+          if(a2[j])
+            bfree(ip->dev, a2[j]); 
+        } 
+ 
+        brelse(bp2); // 释放块缓存
+        bfree(ip->dev, a[i]); // 释放磁盘中的块
+        // 和 a[i] 对应的是 bp2
+        // a[i] 是块号，bp2 是实际的块缓存
+      }      
+    }
+    brelse(bp); // 释放缓存
+    bfree(ip->dev, ip->addrs[NDIRECT + 1]); // 释放磁盘块
+    ip->addrs[NDIRECT + 1] = 0;
   }
 
   ip->size = 0;
