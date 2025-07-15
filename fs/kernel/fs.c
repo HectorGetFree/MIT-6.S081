@@ -706,6 +706,7 @@ skipelem(char *path, char *name)
   return path;
 }
 
+// 查找路径对应的inode
 // Look up and return the inode for a path name.
 // If parent != 0, return the inode for the parent and copy the final
 // path element into name, which must have room for DIRSIZ bytes.

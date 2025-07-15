@@ -310,13 +310,13 @@ sys_open(void)
   struct inode *ip;
   int n;
 
-  argint(1, &omode);
+  argint(1, &omode); // 获取 open 的参数
   if((n = argstr(0, path, MAXPATH)) < 0)
     return -1;
 
   begin_op();
 
-  if(omode & O_CREATE){
+  if(omode & O_CREATE){ // 如果是创建 -- 调用 create 
     ip = create(path, T_FILE, 0, 0);
     if(ip == 0){
       end_op();
@@ -504,11 +504,18 @@ sys_pipe(void)
   return 0;
 }
 
+
+
+// 相当于 path 处的文件inode的 link_target 指向 target 即可
 int 
 sys_symlink(char* target, char* path)
 {
-
-
-
+  struct inode* ip;
+  ip = namei(path); // 找到 path 对应的 inode
+  if (ip == 0) { // 如果没有找到，那就创建一个
+    ip = create(path, T_SYMLINK, 0, 0);
+  }
+  if (ip == 0) return -1;
+    ip->link_target = target;
   return 0; 
 }
