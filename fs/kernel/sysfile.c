@@ -364,6 +364,17 @@ sys_open(void)
     itrunc(ip);
   }
 
+  if (omode & O_NOFOLLOW && ip->type == T_SYMLINK) { // 如果 open 的标记是 O_NOFOLLOW -> 打开符号链接(正常返回fd即可)
+    // 这里要处理的是递归跟踪
+
+    
+
+  }
+
+
+
+
+
   iunlock(ip);
   end_op();
 
@@ -507,15 +518,36 @@ sys_pipe(void)
 
 
 // 相当于 path 处的文件inode的 link_target 指向 target 即可
-int 
-sys_symlink(char* target, char* path)
+uint64
+sys_symlink()
 {
-  struct inode* ip;
-  ip = namei(path); // 找到 path 对应的 inode
-  if (ip == 0) { // 如果没有找到，那就创建一个
-    ip = create(path, T_SYMLINK, 0, 0);
+  // 先获取参数
+  char target[MAXPATH]; // 不用指针是因为文件路径有大小限制
+  char path[MAXPATH]; 
+
+  if (argstr(0, target, MAXPATH) < 0) {
+    return -1;
   }
-  if (ip == 0) return -1;
-    ip->link_target = target;
-  return 0; 
+  if (argstr(1, path, MAXPATH) < 0) {
+    return -1;
+  }
+
+  begin_op();
+  // 找到inode
+  struct inode* ip;
+  ip = create(path, T_SYMLINK, 0, 0);
+  if (ip == 0) {
+    end_op();
+    return -1;
+  }
+
+  if (writei(ip, 0, target, 0, strlen(path)) < strlen(path)) { // 向inode写入数据 -- 将软连接的target写入
+    end_op();
+    return -1;
+  }
+
+  iunlockput(ip);// 使用完 inode 后的标准操作
+  // 先释放了锁，然后释放这个 inode
+  end_op()
+  return 0;
 }
