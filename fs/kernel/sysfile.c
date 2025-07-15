@@ -316,19 +316,49 @@ sys_open(void)
 
   begin_op();
 
+  // 打开或者创建对应文件的inode，记录在ip中
   if(omode & O_CREATE){ // 如果是创建 -- 调用 create 
     ip = create(path, T_FILE, 0, 0);
     if(ip == 0){
       end_op();
       return -1;
     }
-  } else {
+  } else { 
     if((ip = namei(path)) == 0){
       end_op();
       return -1;
     }
     ilock(ip);
     if(ip->type == T_DIR && omode != O_RDONLY){
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
+
+  if (!(omode & O_NOFOLLOW)) {
+    int rec_limit = 10; // 递归下探深度
+    while (rec_limit != 0 && ip->type == T_SYMLINK) {
+      
+      if (readi(ip, 0, (uint64)path, 0, MAXPATH) == 0) { // 从 path 读取inode
+        end_op();
+        return -1;
+      }
+      struct inode* next_ip;
+      if((next_ip = namei(path)) == 0){
+        // namei 可用从一个路径获得 inode
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+      iunlockput(ip); // 储存链接的文件已经使用完了
+      ip = next_ip;
+      rec_limit--;
+      ilock(ip);// 在这里加锁而不在 while 的下面是因为如果这个 inode 不是一个软链接
+                 // 我们还是需要持有这个锁的，因为后面的处理代码会修改 inode
+    }
+
+    if (rec_limit <= 0) { // 说明超过最大递归深度仍没有找到
       iunlockput(ip);
       end_op();
       return -1;
@@ -363,18 +393,6 @@ sys_open(void)
   if((omode & O_TRUNC) && ip->type == T_FILE){
     itrunc(ip);
   }
-
-  if (omode & O_NOFOLLOW && ip->type == T_SYMLINK) { // 如果 open 的标记是 O_NOFOLLOW -> 打开符号链接(正常返回fd即可)
-    // 这里要处理的是递归跟踪
-
-    
-
-  }
-
-
-
-
-
   iunlock(ip);
   end_op();
 
@@ -541,13 +559,13 @@ sys_symlink()
     return -1;
   }
 
-  if (writei(ip, 0, target, 0, strlen(path)) < strlen(path)) { // 向inode写入数据 -- 将软连接的target写入
+  if (writei(ip, 0, (uint64)target, 0, strlen(path)) < strlen(path)) { // 向inode写入数据 -- 将软连接的target写入
     end_op();
     return -1;
   }
 
   iunlockput(ip);// 使用完 inode 后的标准操作
   // 先释放了锁，然后释放这个 inode
-  end_op()
+  end_op();
   return 0;
 }
