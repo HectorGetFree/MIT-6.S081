@@ -34,7 +34,7 @@ struct mmap_vma{
   uint64 start_adr;            // 起始地址
   uint64 sz;                   // 大小
   struct file* file;           // 文件指针
-  int port;                    // 权限
+  int prot;                    // 权限
   int flags;                   // map_shared or map_private
 };
 

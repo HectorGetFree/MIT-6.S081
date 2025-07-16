@@ -508,7 +508,45 @@ sys_pipe(void)
 uint64
 sys_mmap(void) 
 {
-  return 0;
+  //void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+  uint64 addr, length, offset;
+  int prot, flags, fd;
+  struct file* file;
+
+  // 读取参数
+  argaddr(0, &addr);
+  argint(1, &length);
+  argint(2, &prot);
+  argint(3, &flags);
+  argfd(4, &fd, &file);
+  argint(5, &offset);
+
+  if (addr || offset) { // 我们的实现不支持自定义地址和offset
+    return -1;
+  }
+
+  if (!file->writable && (prot & PROT_WRITE) && (flags & MAP_SHARED)) 
+    return -1;          // 文件本身不支持写入，但是mmap设置了
+
+  struct proc* p = myproc();
+  int unuse_idx = -1;
+  uint64 sta_addr = get_mmap_space(length, p->mmap_vams, &unuse_idx); // 查找空闲内存
+
+  if (unuse_idx == -1) return -1;
+  if (sta_addr <= p->sz) return -1; // 没有内存来分配了
+
+  struct mmap_vma* v = &p->mmap_vams[unuse_idx];
+
+  v->in_use = 1;
+  v->start_adr = sta_addr;
+  v->sz = length;
+  v->file = file;
+  v->prot = prot;
+  v->flags = flags;
+
+  filedup(file);
+
+  return v->start_adr;
 }
 
 uint64
