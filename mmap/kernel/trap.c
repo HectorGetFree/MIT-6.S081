@@ -219,6 +219,19 @@ devintr()
 }
 
 
+struct mmap_vma*
+get_vma_by_addr(uint64 addr) 
+{
+  struct proc* p = myproc();
+  for (int i = 0; i < VMA_SZ; i++) {
+    struct mmap_vma v = p->mmap_vams[i];
+    if (v.in_use && addr >= v.start_addr && addr < v.start_addr + v.sz) {
+      // 判断地址是否在某个vma的中间
+      return p->mmap_vams + i;
+    }
+  }
+  return 0;
+}
 
 
 
