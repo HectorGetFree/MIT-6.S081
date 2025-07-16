@@ -547,6 +547,34 @@ get_mmap_space(uint64 sz, struct mmap_vma* v, int* unused_idx)
 }
 
 
+uint64 
+munmap(uint64 addr, uint64 len)
+{
+  struct proc* p = myproc();
+  struct mmap_vma* v = get_mmap_by_addr(addr);
+  if (v == 0) return -1;
+
+  if (addr > v->start_addr && addr + len < v->start_addr + v->sz) {
+    // 从中间挖洞
+    return -1;
+  }
+
+  mmap_writeback(p->pagetable, v->start_addr, len, v);
+
+  if (addr == v->start_addr) {
+    // 从起始位置删除
+    v->start_addr += len;
+  }
+  v->sz -= len;
+
+  if (v->sz <= 0) {
+    // 整个映射区都没了
+    fileclose(v->file);
+    v->in_use = 0;
+  }
+  return 0;
+}
+
 
 
 
@@ -597,5 +625,9 @@ sys_mmap(void)
 uint64
 sys_munmap(void)
 {
-  return 0;
+  // int munmap(void *addr, size_t length);
+  uint64 addr, len;
+  argint(0, &addr);
+  argint(1, &len);
+  return munmap(addr, len);
 }

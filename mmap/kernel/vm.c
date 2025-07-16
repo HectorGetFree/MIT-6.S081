@@ -459,7 +459,7 @@ mmap_writeback(pagetable_t pt, uint64  src_va, uint64 len, struct mmap_vma* vma)
 {
   for (uint64 a = PGROUNDDOWN(src_va); a < PGROUNDDOWN(src_va + len); a += PGSIZE) {
     pte_t* pte;
-    if (pte = walk(pt, a, 0) == 0) {
+    if ((pte = walk(pt, a, 0)) == 0) {
       panic("mmap_writeback: walk");
     }
 
@@ -474,9 +474,9 @@ mmap_writeback(pagetable_t pt, uint64  src_va, uint64 len, struct mmap_vma* vma)
       uint64 copied_len = a - src_va;
       writei(vma->file->ip, 1, a ,copied_len, PGSIZE);
       iunlock(vma->file->ip);
-      end_op()
+      end_op();
     }
-    kfree(PTE2PA(*pte));
+    kfree((void *)PTE2PA(*pte));
     *pte = 0;
   }
   return 0;
