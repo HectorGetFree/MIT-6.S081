@@ -5,7 +5,9 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
-
+#include "proc.h"
+#include "fcntl.h"
+#include "file.h"
 /*
  * the kernel's page table.
  */
@@ -448,4 +450,34 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// 把带脏位的页帧写回文件，并且取消映射
+// 写回的是从 src_va 开始的，长度为 len
+int 
+mmap_writeback(pagetable_t pt, uint64  src_va, uint64 len, struct mmap_vma* vma) 
+{
+  for (uint64 a = PGROUNDDOWN(src_va); a < PGROUNDDOWN(src_va + len); a += PGSIZE) {
+    pte_t* pte;
+    if (pte = walk(pt, a, 0) == 0) {
+      panic("mmap_writeback: walk");
+    }
+
+    if (PTE_FLAGS(*pte) == PTE_V) {
+      panic("mmap_writeback: not leaf"); // 叶子（指向PPT）不应该只有 PTE_V
+    }
+    if (!(*pte & PTE_V)) continue; // lazy 
+
+    if ((*pte & PTE_D) && (vma->flags & MAP_SHARED)) { // 写回
+      begin_op();
+      ilock(vma->file->ip);
+      uint64 copied_len = a - src_va;
+      writei(vma->file->ip, 1, a ,copied_len, PGSIZE);
+      iunlock(vma->file->ip);
+      end_op()
+    }
+    kfree(PTE2PA(*pte));
+    *pte = 0;
+  }
+  return 0;
 }
