@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -505,6 +506,50 @@ sys_pipe(void)
 }
 
 
+uint64 
+get_mmap_space(uint64 sz, struct mmap_vma* v, int* unused_idx)
+{
+  *unused_idx = -1;
+
+  uint64 lowest_addr = TRAPFRAME;
+
+  struct mmap_vma tmp;
+  tmp.start_addr = TRAPFRAME, tmp.sz = 0; // 先初始化一下
+
+
+  for (int i = 0; i <= VMA_SZ; i++) {
+    // 假设 v[i] 的 PGROUNDDOWN(sta_addr) 是新文件映射的结束位置
+    if (v[i].in_use == 0 && i != VMA_SZ) {
+      *unused_idx = i;
+      continue;
+    }
+
+    // 起始位置
+    uint64 ed_pos = i != VMA_SZ ? PGROUNDDOWN(v[i].start_addr) : tmp.start_addr;
+    lowest_addr = ed_pos < lowest_addr ? ed_pos : lowest_addr; // 取 min
+
+    for (int j = 0; j < VMA_SZ; j++) {
+      // 假设 v[j] 的 stard_addr + sz（v[j] 的结束位置） 往上是新映射的起始位置
+      if (v[j].in_use == 0 && i != VMA_SZ) continue;
+
+      uint64 st_pos = i != VMA_SZ ? v[j].start_addr + v[j].sz 
+                                  : tmp.start_addr + tmp.sz; // 这个位置一定是页对齐的
+
+      if (ed_pos <= st_pos) continue; 
+      // 这里直接跳过，不在下面判断是因为无符号类，如果做下面的减法会出错
+      if (ed_pos - st_pos >= sz){
+        // [st_pos, ed_pos) 的区间
+        return st_pos;
+      }
+    }
+  }
+  return lowest_addr - sz;
+}
+
+
+
+
+
 uint64
 sys_mmap(void) 
 {
@@ -538,7 +583,7 @@ sys_mmap(void)
   struct mmap_vma* v = &p->mmap_vams[unuse_idx];
 
   v->in_use = 1;
-  v->start_adr = sta_addr;
+  v->start_addr = sta_addr;
   v->sz = length;
   v->file = file;
   v->prot = prot;
@@ -546,7 +591,7 @@ sys_mmap(void)
 
   filedup(file);
 
-  return v->start_adr;
+  return v->start_addr;
 }
 
 uint64

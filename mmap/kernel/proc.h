@@ -31,7 +31,7 @@ extern struct cpu cpus[NCPU];
 
 struct mmap_vma{
   int in_use;                  // 该文件是否被使用
-  uint64 start_adr;            // 起始地址
+  uint64 start_addr;            // 起始地址
   uint64 sz;                   // 大小
   struct file* file;           // 文件指针
   int prot;                    // 权限
