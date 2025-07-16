@@ -5,6 +5,8 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "file.h"
+#include "fcntl.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -216,3 +218,60 @@ devintr()
   }
 }
 
+
+
+
+
+
+// 处理页面错误，分配物理内存并映射
+int
+mmap_fault_handler(uint64 addr) 
+{
+  struct proc* p = myproc();
+  struct mmap_vma* cur_vma;
+  if ((cur_vma = get_vma_by_adr(addr)) == 0) {
+    // 找到这个地址属于哪个文件的映射
+    // 等于零说明不属于任何一个
+    return -1;
+  }
+
+  if (!cur_vma->file->readable && r_scause() == 13 && (cur_vma->flags & MAP_SHARED)) {
+    DEBUG("mmap_fault_handler: not readable\n");
+    return -1;
+  }
+
+  if (!cur_vma->file->writable && r_scause == 15 && (cur_vma->flags & MAP_SHARED)) {
+     DEBUG("mmap_fault_handler: not writable\n");
+    return -1;
+  }
+
+  uint64 pg_sta = PGROUNDDOWN(addr);
+  uint64 pa = kalloc();
+  if (pa == 0) {
+    DEBUG("mmap_fault_handler: kalloc failed\n");
+    return -1;
+  }
+
+  memset(pa, 0, PGSIZE);
+
+  int perm = PTE_U | PTE_V;
+  if (cur_vma->prot & PROT_READ) perm |= PTE_R;
+  if(cur_vma->prot & PROT_WRITE) perm |= PTE_W;
+  if(cur_vma->prot& PROT_EXEC) perm |= PTE_X;
+
+  uint64 off = PGROUNDDOWN(addr - cur_vma->start_addr); 
+  // 这个 off 代表文件拷贝时要跳过多少个页帧
+
+  ilock(cur_vma->file->ip);
+  int rdret;
+  if ((rdret = readi(cur_vma->file->ip, 0, pa, off, PGSIZE)) == 0) {
+    iulock(cur_vma->file->ip);
+    return -1;
+  }
+
+  iunlock(cur_vma->file->ip);
+
+  mappages(p->pagetable, pg_sta, PGSIZE, pa, perm);
+  return 0;
+
+}
